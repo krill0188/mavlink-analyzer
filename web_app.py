@@ -22,7 +22,7 @@ REPORTS_DIR.mkdir(exist_ok=True)
 sys.path.insert(0, str(BASE_DIR))
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
+app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500MB
 
 # 진행 중인 분석 작업 (task_id → status)
 _jobs: dict = {}
