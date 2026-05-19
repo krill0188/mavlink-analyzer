@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from typing import Iterator
-from collections import defaultdict
 
 from .constants import MAVLINK_V1_MAGIC, MAVLINK_V2_MAGIC
 
@@ -23,7 +22,6 @@ class MAVMessage:
 class MAVLinkParser:
     def __init__(self) -> None:
         self._mav_instances: dict = {}
-        self._tcp_buffers: dict = defaultdict(bytes)
         self._parsed = 0
         self._errors = 0
 
@@ -37,42 +35,26 @@ class MAVLinkParser:
     def _parse_udp(self, frame) -> list:
         results = []
         mav = self._get_mav(f"{frame.src_ip}:{frame.src_port}")
-        payload = frame.payload
-
-        i = 0
-        while i < len(payload):
-            b = payload[i]
-            if b not in (MAVLINK_V1_MAGIC, MAVLINK_V2_MAGIC):
-                i += 1
-                continue
-            # 이 위치부터 parse_char()로 스트리밍
-            for j in range(i, len(payload)):
-                try:
-                    msg = mav.parse_char(bytes([payload[j]]))
-                    if msg and msg.get_type() != "BAD_DATA":
-                        v = 2 if payload[i] == MAVLINK_V2_MAGIC else 1
-                        results.append(self._wrap(msg, frame, v))
-                        self._parsed += 1
-                        i = j + 1
-                        break
-                    elif j == len(payload) - 1:
-                        i += 1
-                except Exception:
-                    self._errors += 1
-                    i += 1
-                    break
-            else:
-                i += 1
+        # parse_char()는 내부 상태머신 — 페이로드 전체를 순서대로 공급
+        for b in frame.payload:
+            try:
+                msg = mav.parse_char(bytes([b]))
+                if msg and msg.get_type() != "BAD_DATA":
+                    v = 2 if getattr(msg, '_header', None) and hasattr(msg._header, 'incompat_flags') else 1
+                    results.append(self._wrap(msg, frame, v))
+                    self._parsed += 1
+            except Exception:
+                self._errors += 1
         return results
 
     def _parse_tcp(self, frame) -> list:
         key = (frame.src_ip, frame.src_port, frame.dst_ip, frame.dst_port)
-        self._tcp_buffers[key] += frame.payload
-        buf = self._tcp_buffers[key]
+        # 새 페이로드만 추가 후 신규 바이트만 파싱 (O(n) 유지)
+        new_data = frame.payload
         results = []
 
         mav = self._get_mav(f"{frame.src_ip}:{frame.src_port}")
-        for b in buf:
+        for b in new_data:
             try:
                 msg = mav.parse_char(bytes([b]))
                 if msg and msg.get_type() != "BAD_DATA":
@@ -82,9 +64,6 @@ class MAVLinkParser:
             except Exception:
                 self._errors += 1
 
-        # 버퍼 최대 8KB로 제한 (오래된 데이터 제거)
-        if len(buf) > 8192:
-            self._tcp_buffers[key] = buf[-4096:]
         return results
 
     def _get_mav(self, key: str):

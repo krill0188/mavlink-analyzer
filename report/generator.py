@@ -141,6 +141,10 @@ class ReportGenerator:
     def _build_context(self) -> dict:
         r = self._result
         overall = self._compute_overall_grade()
+
+        from analyzers.remediation import RemediationEngine
+        rem = RemediationEngine().analyze(r)
+
         return {
             "meta": r.pcap_meta,
             "endpoints": r.endpoints,
@@ -157,6 +161,8 @@ class ReportGenerator:
             "has_gps": len(r.gps_track) > 0,
             "has_rtt": len(r.latency.rtt_samples) > 0,
             "has_cmd": len(r.latency.cmd_rtt_table) > 0,
+            "remediation": rem,
+            "has_remediation": len(rem.issues) > 0,
         }
 
     def _build_chart_data(self) -> dict:

@@ -6,6 +6,9 @@ venv/
 *.pcap
 *.pcapng
 *.cap
+# 생성된 보고서는 제외, 템플릿·설정은 포함
 *.html
+!report/template.html
 *.json
+!history.json
 .env

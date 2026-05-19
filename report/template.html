@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAVLink 분석 보고서 — {{ meta.filename }}</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+{% if has_gps %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{% endif %}
+<style>
+/* 다크 테마 CSS */
+:root {
+  --bg: #0a0e1a;
+  --card: #12172a;
+  --card2: #1a2035;
+  --border: #2a3050;
+  --text: #e0e6ff;
+  --muted: #7080a0;
+  --green: #00ff88;
+  --yellow: #ffdd00;
+  --orange: #ff8800;
+  --red: #ff3366;
+  --blue: #4488ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.6; }
+.container { max-width: 1400px; margin: 0 auto; padding: 1rem 2rem; }
+
+/* 헤더 */
+.header { padding: 2rem 0 1rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem; }
+.header h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+.header .subtitle { color: var(--muted); font-size: 0.9rem; }
+.grade-badge { display: inline-block; padding: 0.3rem 1rem; border-radius: 20px; font-weight: bold; font-size: 0.9rem; margin-left: 1rem; }
+
+/* 섹션 */
+.section { margin-bottom: 3rem; }
+.section h2 { font-size: 1.3rem; margin-bottom: 1.2rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); color: var(--blue); }
+
+/* 카드 그리드 */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem 1.5rem; }
+.card .label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+.card .value { font-size: 1.8rem; font-weight: bold; }
+.card .sub { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
+
+/* 테이블 */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th { background: var(--card2); color: var(--muted); text-align: left; padding: 0.7rem 1rem; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+td { padding: 0.65rem 1rem; border-bottom: 1px solid var(--border); }
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* 등급 배지 */
+.grade { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 12px; font-size: 0.78rem; font-weight: bold; }
+.grade-GREEN { background: rgba(0,255,136,0.15); color: var(--green); }
+.grade-YELLOW { background: rgba(255,221,0,0.15); color: var(--yellow); }
+.grade-ORANGE { background: rgba(255,136,0,0.15); color: var(--orange); }
+.grade-RED { background: rgba(255,51,102,0.15); color: var(--red); }
+
+/* 차트 컨테이너 */
+.chart-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1.5rem; min-height: 300px; }
+
+/* 역할 배지 */
+.role-GCS { color: var(--blue); font-weight: bold; }
+.role-DRONE { color: var(--green); font-weight: bold; }
+.role-UNKNOWN { color: var(--muted); }
+
+/* 이상 탐지 타임라인 */
+.anomaly-list { display: flex; flex-direction: column; gap: 0.7rem; }
+.anomaly-card { background: var(--card); border-left: 4px solid; border-radius: 0 8px 8px 0; padding: 0.8rem 1.2rem; }
+.anomaly-card.WARNING { border-color: var(--orange); }
+.anomaly-card.CRITICAL { border-color: var(--red); }
+.anomaly-card .a-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem; }
+.anomaly-card .a-type { font-weight: bold; font-size: 0.9rem; }
+.anomaly-card .a-time { color: var(--muted); font-size: 0.8rem; font-family: monospace; }
+.anomaly-card .a-desc { color: var(--text); font-size: 0.88rem; }
+
+/* STATUSTEXT */
+.log-filters { display: flex; gap: 1rem; margin-bottom: 1rem; align-items: center; }
+.log-filters select, .log-filters input { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.9rem; }
+.log-filters input { flex: 1; }
+.sev-EMERGENCY, .sev-ALERT, .sev-CRITICAL, .sev-ERROR { color: var(--red); }
+.sev-WARNING { color: var(--orange); }
+.sev-NOTICE, .sev-INFO { color: var(--text); }
+.sev-DEBUG { color: var(--muted); }
+
+/* 네비게이션 */
+.nav { position: sticky; top: 0; background: rgba(10,14,26,0.95); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); z-index: 100; padding: 0.5rem 0; }
+.nav ul { list-style: none; display: flex; gap: 0.5rem; flex-wrap: wrap; max-width: 1400px; margin: 0 auto; padding: 0 2rem; }
+.nav li a { color: var(--muted); text-decoration: none; font-size: 0.82rem; padding: 0.3rem 0.7rem; border-radius: 4px; transition: all 0.2s; }
+.nav li a:hover { color: var(--text); background: var(--card); }
+
+/* 지도 */
+#map { height: 400px; border-radius: 12px; }
+
+/* 반응형 */
+@media (max-width: 768px) {
+  .container { padding: 1rem; }
+  .card-grid { grid-template-columns: repeat(2, 1fr); }
+  .nav ul { gap: 0.3rem; }
+}
+
+/* 조치 가이드 */
+.rem-issue { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.2rem; }
+.rem-issue.CRITICAL { border-left: 4px solid var(--red); }
+.rem-issue.WARNING  { border-left: 4px solid var(--orange); }
+.rem-issue-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.5rem; }
+.rem-issue-title { font-size: 1rem; font-weight: 700; }
+.rem-impact { background: rgba(255,51,102,0.08); border: 1px solid rgba(255,51,102,0.25); border-radius: 6px; padding: 0.5rem 0.8rem; font-size: 0.85rem; margin-bottom: 1rem; }
+.rem-affected { color: var(--muted); font-size: 0.82rem; margin-bottom: 0.8rem; font-family: monospace; }
+.rem-steps { border-top: 1px solid var(--border); padding-top: 0.8rem; }
+.rem-step { display: flex; gap: 0.8rem; padding: 0.55rem 0; border-bottom: 1px solid rgba(42,48,80,0.5); align-items: flex-start; }
+.rem-step:last-child { border-bottom: none; }
+.step-pri { display: inline-block; min-width: 48px; text-align: center; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; flex-shrink: 0; }
+.pri-1 { background: rgba(255,51,102,0.2); color: var(--red); }
+.pri-2 { background: rgba(255,136,0,0.2); color: var(--orange); }
+.pri-3 { background: rgba(68,136,255,0.2); color: var(--blue); }
+.step-cat { color: var(--muted); font-size: 0.78rem; min-width: 68px; flex-shrink: 0; padding-top: 0.15rem; }
+.step-body .step-action { font-weight: 600; font-size: 0.88rem; line-height: 1.4; }
+.step-body .step-detail { color: var(--muted); font-size: 0.8rem; margin-top: 0.2rem; line-height: 1.4; }
+
+.action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; margin-bottom: 1.5rem; }
+.action-col { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; }
+.action-col-title { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.8rem; }
+.action-item { font-size: 0.82rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(42,48,80,0.5); line-height: 1.4; }
+.action-item:last-child { border-bottom: none; }
+.action-item::before { content: "▸ "; opacity: 0.6; }
+
+@media (max-width: 768px) { .action-grid { grid-template-columns: 1fr; } }
+
+/* 인쇄 */
+@media print {
+  .nav { display: none; }
+  body { background: #fff; color: #000; }
+  .card { background: #f5f5f5; border-color: #ddd; }
+  .chart-box { border-color: #ddd; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <ul>
+    <li><a href="#summary">요약</a></li>
+    <li><a href="#streams">스트림</a></li>
+    <li><a href="#rtt">RTT</a></li>
+    <li><a href="#loss">손실</a></li>
+    <li><a href="#heartbeat">HEARTBEAT</a></li>
+    <li><a href="#commands">커맨드</a></li>
+    <li><a href="#bandwidth">대역폭</a></li>
+    <li><a href="#anomalies">이상탐지</a></li>
+    <li><a href="#statustext">STATUSTEXT</a></li>
+    {% if has_gps %}<li><a href="#flightpath">비행궤적</a></li>{% endif %}
+    {% if has_remediation %}<li><a href="#remediation" style="color:var(--orange);font-weight:600">조치가이드</a></li>{% endif %}
+  </ul>
+</nav>
+
+<div class="container">
+
+<!-- 헤더 -->
+<div class="header">
+  <h1>MAVLink 통신 분석 보고서
+    <span class="grade-badge" style="background:rgba(0,0,0,0.3);color:{{ overall_color }};">
+      {{ overall_grade }}
+    </span>
+  </h1>
+  <div class="subtitle">{{ meta.filename }} &nbsp;|&nbsp; {{ meta.start_dt }} &nbsp;|&nbsp; 캡처 시간: {{ meta.duration_str }}</div>
+</div>
+
+<!-- §1 요약 -->
+<section id="summary" class="section">
+  <h2>§1 종합 요약</h2>
+  <div class="card-grid">
+    <div class="card">
+      <div class="label">총 패킷</div>
+      <div class="value">{{ "{:,}".format(meta.total_frames) }}</div>
+      <div class="sub">캡처된 전체 패킷</div>
+    </div>
+    <div class="card">
+      <div class="label">MAVLink 메시지</div>
+      <div class="value">{{ "{:,}".format(meta.mavlink_messages) }}</div>
+      <div class="sub">디코딩 성공</div>
+    </div>
+    <div class="card">
+      <div class="label">평균 RTT</div>
+      <div class="value" style="color:{{ latency.mean_rtt_ms | grade_rtt_color }}">
+        {{ latency.mean_rtt_ms | ms_fmt }}
+      </div>
+      <div class="sub">커맨드 응답 시간</div>
+    </div>
+    <div class="card">
+      <div class="label">이상 이벤트</div>
+      <div class="value" style="color:{% if anomalies|length > 0 %}var(--orange){% else %}var(--green){% endif %}">
+        {{ anomalies|length }}
+      </div>
+      <div class="sub">탐지된 이상 이벤트</div>
+    </div>
+    <div class="card">
+      <div class="label">종합 링크 등급</div>
+      <div class="value">
+        <span class="grade grade-{{ overall_grade }}">{{ overall_grade }}</span>
+      </div>
+      <div class="sub">RTT + 손실 + 이상 종합</div>
+    </div>
+    <div class="card">
+      <div class="label">캡처 시간</div>
+      <div class="value" style="font-size:1.4rem">{{ meta.duration_str }}</div>
+      <div class="sub">{{ meta.start_dt }}</div>
+    </div>
+  </div>
+</section>
+
+<!-- §2 스트림 맵 -->
+<section id="streams" class="section">
+  <h2>§2 스트림 식별 맵</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>역할</th>
+          <th>IP 주소</th>
+          <th>포트</th>
+          <th>SysID</th>
+          <th>CompID</th>
+          <th>메시지 수</th>
+          <th>마지막 수신</th>
+          <th>메시지 타입 수</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ep in endpoints %}
+        <tr>
+          <td><span class="role-{{ ep.role }}">{{ ep.role }}</span></td>
+          <td><code>{{ ep.ip }}</code></td>
+          <td><code>{{ ep.port }}</code></td>
+          <td>{{ ep.sysid }}</td>
+          <td>{{ ep.compid }}</td>
+          <td>{{ "{:,}".format(ep.msg_count) }}</td>
+          <td style="color:var(--muted);font-size:0.85rem">{{ ep.last_seen | ts_rel }}</td>
+          <td>{{ ep.msg_types | length }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" style="color:var(--muted);text-align:center">엔드포인트 없음</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- §3 RTT 분석 -->
+<section id="rtt" class="section">
+  <h2>§3 RTT (응답 지연) 분석</h2>
+  {% if has_rtt %}
+  <div class="card-grid">
+    <div class="card">
+      <div class="label">평균 RTT</div>
+      <div class="value">{{ latency.mean_rtt_ms | ms_fmt }}</div>
+    </div>
+    <div class="card">
+      <div class="label">최대 RTT</div>
+      <div class="value" style="color:var(--orange)">{{ latency.max_rtt_ms | ms_fmt }}</div>
+    </div>
+    <div class="card">
+      <div class="label">최소 RTT</div>
+      <div class="value" style="color:var(--green)">{{ latency.min_rtt_ms | ms_fmt }}</div>
+    </div>
+    <div class="card">
+      <div class="label">표준편차</div>
+      <div class="value">{{ latency.stddev_rtt_ms | ms_fmt }}</div>
+    </div>
+    <div class="card">
+      <div class="label">미응답 커맨드</div>
+      <div class="value" style="color:{% if latency.unanswered_count > 0 %}var(--red){% else %}var(--green){% endif %}">
+        {{ latency.unanswered_count }}
+      </div>
+    </div>
+  </div>
+  <div class="chart-box" id="rtt-chart"></div>
+
+  {% if has_cmd %}
+  <h3 style="margin-bottom:1rem;color:var(--muted);font-size:1rem">커맨드별 RTT 통계</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>커맨드</th><th>횟수</th><th>평균 RTT</th><th>최대 RTT</th><th>최소 RTT</th><th>성공률</th></tr>
+      </thead>
+      <tbody>
+        {% for row in latency.cmd_rtt_table %}
+        <tr>
+          <td><code>{{ row.command }}</code></td>
+          <td>{{ row.count }}</td>
+          <td>{{ row.mean_rtt_ms }}ms</td>
+          <td>{{ row.max_rtt_ms }}ms</td>
+          <td>{{ row.min_rtt_ms }}ms</td>
+          <td><span class="grade grade-{% if row.success_rate >= 95 %}GREEN{% elif row.success_rate >= 80 %}YELLOW{% else %}RED{% endif %}">
+            {{ row.success_rate }}%
+          </span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="card" style="text-align:center;color:var(--muted)">커맨드/ACK 쌍 없음 (COMMAND_LONG 메시지 미발견)</div>
+  {% endif %}
+</section>
+
+<!-- §4 패킷 손실 -->
+<section id="loss" class="section">
+  <h2>§4 패킷 손실 분석</h2>
+  {% if loss %}
+  <div class="chart-box" id="loss-chart"></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>스트림</th><th>SysID</th><th>수신</th><th>손실</th><th>손실률</th><th>등급</th></tr>
+      </thead>
+      <tbody>
+        {% for ls in loss %}
+        <tr>
+          <td><code>{{ ls.stream_key }}</code></td>
+          <td>{{ ls.sysid }}</td>
+          <td>{{ "{:,}".format(ls.total_received) }}</td>
+          <td>{{ ls.lost_count }}</td>
+          <td>{{ ls.loss_pct | pct_fmt }}</td>
+          <td><span class="grade grade-{{ ls.grade }}">{{ ls.grade }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card" style="text-align:center;color:var(--green)">패킷 손실 없음</div>
+  {% endif %}
+</section>
+
+<!-- §5 HEARTBEAT 모니터 -->
+<section id="heartbeat" class="section">
+  <h2>§5 HEARTBEAT 모니터</h2>
+  {% if jitter %}
+  <div class="card-grid">
+    {% for j in jitter %}
+    <div class="card">
+      <div class="label">sysid={{ j.sysid }} ({{ j.src_ip }})</div>
+      <div class="value">{{ j.stddev_ms }}ms</div>
+      <div class="sub">지터(σ) | 평균 {{ j.mean_interval_ms }}ms | <span class="grade grade-{{ j.grade }}">{{ j.grade }}</span></div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="chart-box" id="hb-chart"></div>
+</section>
+
+<!-- §6 커맨드/ACK 분석 -->
+<section id="commands" class="section">
+  <h2>§6 커맨드/ACK 분석</h2>
+  {% if has_rtt %}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+    <div class="chart-box" id="cmd-pie-chart"></div>
+    <div class="chart-box" id="cmd-bar-chart"></div>
+  </div>
+  <h3 style="margin:1.5rem 0 1rem;color:var(--muted);font-size:1rem">커맨드 상세 로그</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>시각</th><th>커맨드</th><th>결과</th><th>RTT</th><th>중간응답</th></tr>
+      </thead>
+      <tbody>
+        {% for s in latency.rtt_samples %}
+        <tr>
+          <td style="font-family:monospace;font-size:0.85rem">{{ s.timestamp | ts_rel }}</td>
+          <td><code>{{ s.command_name }}</code></td>
+          <td>
+            <span class="grade grade-{% if s.result == 0 %}GREEN{% elif s.result == 5 %}YELLOW{% else %}RED{% endif %}">
+              {{ s.result_name }}
+            </span>
+          </td>
+          <td>{{ s.rtt_ms | ms_fmt }}</td>
+          <td>{% if s.intermediate %}<span style="color:var(--yellow)">IN_PROGRESS</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card" style="text-align:center;color:var(--muted)">커맨드 데이터 없음</div>
+  {% endif %}
+</section>
+
+<!-- §7 대역폭 -->
+<section id="bandwidth" class="section">
+  <h2>§7 대역폭 분석</h2>
+  <div class="card-grid">
+    <div class="card">
+      <div class="label">피크 메시지/초</div>
+      <div class="value">{{ bandwidth.peak_msg_per_sec }}</div>
+    </div>
+    <div class="card">
+      <div class="label">평균 메시지/초</div>
+      <div class="value">{{ bandwidth.mean_msg_per_sec }}</div>
+    </div>
+    <div class="card">
+      <div class="label">피크 대역폭</div>
+      <div class="value" style="font-size:1.4rem">{{ (bandwidth.peak_bytes_per_sec * 8 / 1000) | round(1) }} kbps</div>
+    </div>
+  </div>
+  <div class="chart-box" id="bw-chart"></div>
+  <div class="chart-box" id="type-pie-chart"></div>
+</section>
+
+<!-- §8 이상 탐지 -->
+<section id="anomalies" class="section">
+  <h2>§8 이상 탐지 타임라인</h2>
+  {% if anomalies %}
+  <div class="anomaly-list">
+    {% for ev in anomalies %}
+    <div class="anomaly-card {{ ev.severity }}">
+      <div class="a-header">
+        <span class="a-type">
+          {% if ev.severity == 'CRITICAL' %}[CRITICAL]{% else %}[WARNING]{% endif %}
+          {{ ev.anomaly_type }}
+        </span>
+        <span class="a-time">{{ ev.timestamp | ts_rel }}</span>
+      </div>
+      <div class="a-desc">{{ ev.description }}</div>
+      <div style="font-size:0.8rem;color:var(--muted);margin-top:0.3rem">
+        {{ ev.src_ip }}{% if ev.dst_ip %} → {{ ev.dst_ip }}{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card" style="text-align:center;color:var(--green)">이상 이벤트 없음 — 링크 정상</div>
+  {% endif %}
+</section>
+
+<!-- §9 STATUSTEXT -->
+<section id="statustext" class="section">
+  <h2>§9 STATUSTEXT 로그</h2>
+  {% if statustexts %}
+  <div class="log-filters">
+    <select id="sev-filter" onchange="filterStatus()">
+      <option value="">전체 심각도</option>
+      <option value="EMERGENCY">EMERGENCY</option>
+      <option value="CRITICAL">CRITICAL</option>
+      <option value="ERROR">ERROR</option>
+      <option value="WARNING">WARNING</option>
+      <option value="INFO">INFO</option>
+      <option value="DEBUG">DEBUG</option>
+    </select>
+    <input type="text" id="text-filter" placeholder="메시지 검색..." oninput="filterStatus()">
+  </div>
+  <div class="table-wrap">
+    <table id="status-table">
+      <thead>
+        <tr><th>시각</th><th>SysID</th><th>심각도</th><th>메시지</th></tr>
+      </thead>
+      <tbody>
+        {% for st in statustexts %}
+        <tr data-sev="{{ st.severity_name }}">
+          <td style="font-family:monospace;font-size:0.85rem">{{ st.timestamp | ts_rel }}</td>
+          <td>{{ st.sysid }}</td>
+          <td class="sev-{{ st.severity_name }}">{{ st.severity_name }}</td>
+          <td>{{ st.text }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card" style="text-align:center;color:var(--muted)">STATUSTEXT 메시지 없음</div>
+  {% endif %}
+</section>
+
+<!-- §10 비행 궤적 -->
+{% if has_gps %}
+<section id="flightpath" class="section">
+  <h2>§10 비행 궤적</h2>
+  <div id="map" class="chart-box"></div>
+</section>
+{% endif %}
+
+<!-- §11 조치 가이드 -->
+{% if has_remediation %}
+<section id="remediation" class="section">
+  <h2>§11 조치 가이드 (Remediation Guide)</h2>
+
+  <!-- 종합 조치 요약 -->
+  <div class="action-grid">
+    <div class="action-col" style="border-color:rgba(255,51,102,0.4)">
+      <div class="action-col-title" style="color:var(--red)">즉시 조치 (즉시)</div>
+      {% for act in remediation.immediate_actions %}
+      <div class="action-item" style="color:var(--text)">{{ act }}</div>
+      {% else %}
+      <div style="color:var(--green);font-size:0.85rem">해당 없음 — 양호</div>
+      {% endfor %}
+    </div>
+    <div class="action-col" style="border-color:rgba(255,136,0,0.4)">
+      <div class="action-col-title" style="color:var(--orange)">단기 조치 (1주 이내)</div>
+      {% for act in remediation.short_term %}
+      <div class="action-item" style="color:var(--text)">{{ act }}</div>
+      {% else %}
+      <div style="color:var(--green);font-size:0.85rem">해당 없음</div>
+      {% endfor %}
+    </div>
+    <div class="action-col" style="border-color:rgba(68,136,255,0.4)">
+      <div class="action-col-title" style="color:var(--blue)">중기 조치 (1개월 이내)</div>
+      {% for act in remediation.mid_term %}
+      <div class="action-item" style="color:var(--text)">{{ act }}</div>
+      {% else %}
+      <div style="color:var(--green);font-size:0.85rem">해당 없음</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- 개별 이슈별 상세 조치 -->
+  <h3 style="margin-bottom:1rem;color:var(--muted);font-size:0.95rem;font-weight:600">개별 이슈별 상세 조치</h3>
+  {% for issue in remediation.issues %}
+  <div class="rem-issue {{ issue.severity }}">
+    <div class="rem-issue-header">
+      <div>
+        <span class="grade grade-{{ 'RED' if issue.severity == 'CRITICAL' else 'ORANGE' }}">
+          {{ issue.severity }}
+        </span>
+        <span class="rem-issue-title" style="margin-left:0.6rem">{{ issue.title }}</span>
+      </div>
+      <span style="color:var(--muted);font-size:0.78rem;background:var(--card2);padding:0.2rem 0.6rem;border-radius:4px">
+        {{ issue.issue_type }}
+      </span>
+    </div>
+
+    <div style="color:var(--muted);font-size:0.88rem;margin-bottom:0.6rem">{{ issue.summary }}</div>
+    <div class="rem-affected">영향 대상: {{ issue.affected }}</div>
+    <div class="rem-impact">⚠ 영향: {{ issue.impact }}</div>
+
+    <div class="rem-steps">
+      <div style="color:var(--muted);font-size:0.78rem;margin-bottom:0.5rem;font-weight:600">조치 단계</div>
+      {% for step in issue.steps %}
+      <div class="rem-step">
+        <span class="step-pri pri-{{ step.priority }}">
+          {% if step.priority == 1 %}즉시{% elif step.priority == 2 %}단기{% else %}중기{% endif %}
+        </span>
+        <span class="step-cat">{{ step.category }}</span>
+        <div class="step-body">
+          <div class="step-action">{{ step.action }}</div>
+          <div class="step-detail">{{ step.detail }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+</div><!-- /container -->
+
+<script>
+const D = {{ report_json | safe }};
+const layout_base = {
+  paper_bgcolor: 'rgba(0,0,0,0)',
+  plot_bgcolor: 'rgba(18,23,42,1)',
+  font: { color: '#e0e6ff', family: 'Segoe UI, system-ui, sans-serif' },
+  margin: { l: 60, r: 20, t: 30, b: 60 },
+  xaxis: { gridcolor: '#2a3050', zerolinecolor: '#2a3050' },
+  yaxis: { gridcolor: '#2a3050', zerolinecolor: '#2a3050' },
+};
+
+// RTT 시계열
+if (D.rtt && D.rtt.x.length > 0) {
+  const colors = D.rtt.results.map(r => r === 'ACCEPTED' ? '#00ff88' : r === 'IN_PROGRESS' ? '#ffdd00' : '#ff3366');
+  Plotly.newPlot('rtt-chart', [
+    { x: D.rtt.x, y: D.rtt.y, mode: 'lines+markers', name: 'RTT (ms)',
+      line: { color: '#4488ff', width: 1.5 }, marker: { color: colors, size: 6 },
+      text: D.rtt.labels, hovertemplate: '%{text}<br>RTT: %{y:.1f}ms<extra></extra>' }
+  ], Object.assign({}, layout_base, {
+    title: { text: 'COMMAND RTT 시계열', font: { size: 14 } },
+    xaxis: Object.assign({ title: '상대 시간 (초)' }, layout_base.xaxis),
+    yaxis: Object.assign({ title: 'RTT (ms)' }, layout_base.yaxis),
+    shapes: [
+      { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 50, y1: 50, line: { color: '#ffdd00', dash: 'dash', width: 1 } },
+      { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 100, y1: 100, line: { color: '#ff8800', dash: 'dash', width: 1 } },
+      { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 300, y1: 300, line: { color: '#ff3366', dash: 'dash', width: 1 } },
+    ],
+    annotations: [
+      { x: 1, xref: 'paper', y: 50, text: 'YELLOW', font: { color: '#ffdd00', size: 10 }, showarrow: false, xanchor: 'right' },
+      { x: 1, xref: 'paper', y: 100, text: 'ORANGE', font: { color: '#ff8800', size: 10 }, showarrow: false, xanchor: 'right' },
+      { x: 1, xref: 'paper', y: 300, text: 'RED', font: { color: '#ff3366', size: 10 }, showarrow: false, xanchor: 'right' },
+    ],
+  }), { responsive: true, displayModeBar: false });
+}
+
+// 패킷 손실 게이지
+if (D.loss && D.loss.length > 0) {
+  const gaugeData = D.loss.slice(0, 4).map((ls, i) => ({
+    type: 'indicator', mode: 'gauge+number',
+    value: ls.pct,
+    title: { text: ls.label.length > 30 ? ls.label.substring(0,30)+'...' : ls.label, font: { size: 12 } },
+    gauge: {
+      axis: { range: [0, 10], tickcolor: '#7080a0', tickfont: { color: '#7080a0' } },
+      bar: { color: ls.grade === 'GREEN' ? '#00ff88' : ls.grade === 'YELLOW' ? '#ffdd00' : ls.grade === 'ORANGE' ? '#ff8800' : '#ff3366' },
+      bgcolor: '#1a2035',
+      steps: [
+        { range: [0, 0.5], color: 'rgba(0,255,136,0.1)' },
+        { range: [0.5, 2], color: 'rgba(255,221,0,0.1)' },
+        { range: [2, 5], color: 'rgba(255,136,0,0.1)' },
+        { range: [5, 10], color: 'rgba(255,51,102,0.1)' },
+      ],
+      threshold: { line: { color: '#ff3366', width: 2 }, thickness: 0.8, value: 5 },
+    },
+    number: { suffix: '%', font: { color: '#e0e6ff' } },
+    domain: { row: 0, column: i },
+  }));
+  Plotly.newPlot('loss-chart', gaugeData, Object.assign({}, layout_base, {
+    grid: { rows: 1, columns: Math.min(D.loss.length, 4), pattern: 'independent' },
+    height: 250, margin: { l: 20, r: 20, t: 60, b: 20 },
+  }), { responsive: true, displayModeBar: false });
+}
+
+// HEARTBEAT 히스토그램
+if (D.hb_intervals && D.hb_intervals.length > 0) {
+  Plotly.newPlot('hb-chart', [{
+    x: D.hb_intervals, type: 'histogram', nbinsx: 50,
+    name: 'HEARTBEAT 간격',
+    marker: { color: '#4488ff', opacity: 0.8,
+      line: { color: '#0a0e1a', width: 1 } },
+  }], Object.assign({}, layout_base, {
+    title: { text: 'HEARTBEAT 도착 간격 분포', font: { size: 14 } },
+    xaxis: Object.assign({ title: '간격 (ms)' }, layout_base.xaxis),
+    yaxis: Object.assign({ title: '빈도' }, layout_base.yaxis),
+    shapes: [{ type: 'line', x0: 1000, x1: 1000, y0: 0, y1: 1, yref: 'paper',
+      line: { color: '#00ff88', dash: 'dot', width: 2 } }],
+    annotations: [{ x: 1000, y: 1, yref: 'paper', text: '정상 1s', font: { color: '#00ff88', size: 11 }, showarrow: false, yanchor: 'top' }],
+  }), { responsive: true, displayModeBar: false });
+}
+
+// 커맨드 결과 파이
+if (D.cmd_results && Object.keys(D.cmd_results).length > 0) {
+  const labels = Object.keys(D.cmd_results);
+  const vals = Object.values(D.cmd_results);
+  const colors_map = { ACCEPTED: '#00ff88', TEMP_REJECTED: '#ffdd00', DENIED: '#ff3366', UNSUPPORTED: '#ff8800', FAILED: '#ff3366', IN_PROGRESS: '#4488ff', CANCELLED: '#7080a0' };
+  Plotly.newPlot('cmd-pie-chart', [{
+    type: 'pie', labels, values: vals,
+    marker: { colors: labels.map(l => colors_map[l] || '#7080a0') },
+    textfont: { color: '#e0e6ff' },
+    hovertemplate: '%{label}: %{value}건 (%{percent})<extra></extra>',
+  }], Object.assign({}, layout_base, {
+    title: { text: '커맨드 결과 분포', font: { size: 14 } },
+    height: 300, showlegend: true,
+    legend: { font: { color: '#e0e6ff' } },
+  }), { responsive: true, displayModeBar: false });
+
+  Plotly.newPlot('cmd-bar-chart', [{
+    x: labels, y: vals, type: 'bar',
+    marker: { color: labels.map(l => colors_map[l] || '#7080a0') },
+    text: vals, textposition: 'outside', textfont: { color: '#e0e6ff' },
+  }], Object.assign({}, layout_base, {
+    title: { text: '커맨드 결과 건수', font: { size: 14 } },
+    height: 300,
+    xaxis: Object.assign({ title: '결과' }, layout_base.xaxis),
+    yaxis: Object.assign({ title: '건수' }, layout_base.yaxis),
+  }), { responsive: true, displayModeBar: false });
+}
+
+// 대역폭 차트
+if (D.bandwidth && D.bandwidth.x.length > 0) {
+  Plotly.newPlot('bw-chart', [
+    { x: D.bandwidth.x, y: D.bandwidth.y, type: 'scatter', mode: 'lines',
+      fill: 'tozeroy', fillcolor: 'rgba(68,136,255,0.15)',
+      line: { color: '#4488ff', width: 1.5 }, name: '메시지/초',
+      hovertemplate: '경과: %{x:.0f}초<br>메시지/초: %{y}<extra></extra>' }
+  ], Object.assign({}, layout_base, {
+    title: { text: '초당 MAVLink 메시지 수', font: { size: 14 } },
+    xaxis: Object.assign({ title: '상대 시간 (초)' }, layout_base.xaxis),
+    yaxis: Object.assign({ title: '메시지/초' }, layout_base.yaxis),
+  }), { responsive: true, displayModeBar: false });
+}
+
+// 메시지 타입 파이
+if (D.type_dist && Object.keys(D.type_dist).length > 0) {
+  const tl = Object.keys(D.type_dist);
+  const tv = Object.values(D.type_dist);
+  Plotly.newPlot('type-pie-chart', [{
+    type: 'pie', labels: tl, values: tv,
+    textfont: { color: '#e0e6ff' },
+    hovertemplate: '%{label}: %{value}건 (%{percent})<extra></extra>',
+  }], Object.assign({}, layout_base, {
+    title: { text: 'MAVLink 메시지 타입 분포', font: { size: 14 } },
+    height: 350, showlegend: true,
+    legend: { font: { color: '#e0e6ff' }, orientation: 'v' },
+  }), { responsive: true, displayModeBar: false });
+}
+
+// GPS 지도
+{% if has_gps %}
+if (D.gps && D.gps.length > 0) {
+  const gps = D.gps;
+  const map = L.map('map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const latlngs = gps.map(p => [p.lat, p.lon]);
+  L.polyline(latlngs, { color: '#4488ff', weight: 2, opacity: 0.8 }).addTo(map);
+
+  // 시작/종료 마커
+  L.circleMarker(latlngs[0], { radius: 8, fillColor: '#00ff88', color: '#fff', fillOpacity: 1, weight: 2 })
+    .addTo(map).bindPopup('<b>출발</b><br>고도: ' + gps[0].alt.toFixed(1) + 'm');
+  L.circleMarker(latlngs[latlngs.length-1], { radius: 8, fillColor: '#ff3366', color: '#fff', fillOpacity: 1, weight: 2 })
+    .addTo(map).bindPopup('<b>도착</b><br>고도: ' + gps[gps.length-1].alt.toFixed(1) + 'm');
+
+  map.fitBounds(L.polyline(latlngs).getBounds(), { padding: [20, 20] });
+}
+{% endif %}
+
+// STATUSTEXT 필터
+function filterStatus() {
+  const sevFilter = document.getElementById('sev-filter').value;
+  const textFilter = document.getElementById('text-filter').value.toLowerCase();
+  const rows = document.querySelectorAll('#status-table tbody tr');
+  rows.forEach(row => {
+    const sev = row.dataset.sev || '';
+    const text = row.textContent.toLowerCase();
+    const sevMatch = !sevFilter || sev === sevFilter;
+    const textMatch = !textFilter || text.includes(textFilter);
+    row.style.display = (sevMatch && textMatch) ? '' : 'none';
+  });
+}
+</script>
+</body>
+</html>
