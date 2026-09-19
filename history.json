@@ -1,0 +1,50 @@
+[
+  {
+    "task_id": "e251552e-5539-4ace-8cd4-16ae408b240b",
+    "filename": "arm_5차.pcapng",
+    "analyzed_at": "2026-05-19 21:13",
+    "grade": "RED",
+    "total_frames": 890641,
+    "mavlink_messages": 2421977,
+    "duration": "22:04",
+    "mean_rtt": 110.13,
+    "anomalies": 35,
+    "loss_streams": 60
+  },
+  {
+    "task_id": "e86411ba-be20-4371-973c-2e25502abfd7",
+    "filename": "arm_4차.pcapng",
+    "analyzed_at": "2026-05-19 20:57",
+    "grade": "RED",
+    "total_frames": 736449,
+    "mavlink_messages": 1827443,
+    "duration": "01:06:10",
+    "mean_rtt": 0.0,
+    "anomalies": 12,
+    "loss_streams": 13
+  },
+  {
+    "task_id": "98d32297-2aff-4341-9f0a-19e6c96bf101",
+    "filename": "arm_2차.pcapng",
+    "analyzed_at": "2026-05-19 11:21",
+    "grade": "RED",
+    "total_frames": 230683,
+    "mavlink_messages": 587703,
+    "duration": "18:08",
+    "mean_rtt": 3622.64,
+    "anomalies": 37,
+    "loss_streams": 15
+  },
+  {
+    "task_id": "09fae5bb-073e-44b4-b309-be6c17f27c6c",
+    "filename": "arm_3차.pcapng",
+    "analyzed_at": "2026-05-19 11:14",
+    "grade": "RED",
+    "total_frames": 124162,
+    "mavlink_messages": 313976,
+    "duration": "09:57",
+    "mean_rtt": 0.0,
+    "anomalies": 13,
+    "loss_streams": 15
+  }
+]
